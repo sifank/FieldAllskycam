@@ -1,0 +1,11 @@
+# m h  dom mon dow   command
+
+# At boot, start the wind speed daemon
+@reboot /opt/KOBS/windsrv/windSpdDaemon
+
+# Each hour zero out hourly wind gusts
+0 * * * * /opt/KOBS/windsrv/zeroHour
+
+# At midnight zero out daily and hourly wind gusts
+0 0 * * * /usr/bin/echo -n "0.0: 0.0: 0.0" > /opt/KOBS/windsrv/lastwind.txt
+

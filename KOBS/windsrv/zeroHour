@@ -1,0 +1,21 @@
+#!/usr/bin/python3
+#
+# Name:     zeroHour
+# Version:  20230505
+# Author:   Sifan
+# Desc:     zero's the hourly gust (called via cron job)
+
+import sys, os
+
+WINDFILE = '/opt/KOBS/windsrv/lastwind.txt'
+
+with open(WINDFILE, "r") as wfile:
+	[lastwind, lastgust, lastdailygust] = wfile.read().rstrip().split(":")
+	lastwind = float(lastwind)
+	lastgust = 0.0
+	lastdailygust = float(lastdailygust)
+
+with open(WINDFILE, "w") as wfile:
+	wfile.write("%4.1f:%4.1f:%4.1f" % (lastwind, lastgust, lastdailygust))
+	wfile.close()
+

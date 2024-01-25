@@ -1,0 +1,35 @@
+#!/usr/bin/python3
+# Program:	winddir
+# Version:	20230426
+# Author:	Sifan
+# Desc:		Uses Davis Wind Vane and Adafruit PCF8591 to measure wind direction
+
+import time, datetime, board
+import adafruit_pcf8591.pcf8591 as PCF
+
+CRDNLS   = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+             "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+currentTime = datetime.datetime.now()
+currentTimeAsString = currentTime.strftime("%Y-%m-%d %H:%M:%S")
+
+i2c = board.I2C()
+pcf = PCF.PCF8591(i2c)
+
+# Which channel to read (0-3)
+CHANNEL = 3
+
+# Initialize cardinal dir
+cardir = "U"   # meaning unset
+
+
+# Read channel 0 for 5 seconds and print out its values.
+voltage = pcf.read(CHANNEL)
+#degrees = '{:3.1f}'.format((voltage/4.66) + 26.86)
+degrees = voltage * 1.43
+windCrd     = CRDNLS[(int((degrees + 11.25)/22.5)) % 16]
+deg = '{:3.1f}'.format(degrees)
+
+print("Current Time:  %s" % currentTimeAsString)
+print("Wind Voltage: %s  Direction: %s  Cardinal: %s" % (voltage, deg, windCrd))
+

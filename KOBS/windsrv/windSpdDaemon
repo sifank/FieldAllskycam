@@ -1,0 +1,59 @@
+#!/usr/bin/python3
+#
+# Name:     windSpd
+# Version:  20230505
+# Author:   Sifan
+# Desc:     counts Davis anemonetor spins
+
+import RPi.GPIO as GPIO
+import time, datetime
+from time import sleep
+import sys, os
+import curses
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+GPIN = 21   # GPIO pin reading pulses
+SAMINT = 10  # sample interval in sec
+DEBNC = 250/1000
+WINDFILE = '/opt/KOBS/windsrv/lastwind.txt'
+GPIO.setup(GPIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+global revcount
+revcount = 0
+
+# Interupt call back function
+# ---------------------------
+def increvcnt(channel):
+	global revcount
+	revcount += 1
+	#sleep(DEBNC)
+	sleep(.001)
+
+# Main - turns into a daemon
+# ---------------------------
+GPIO.add_event_detect(GPIN, GPIO.RISING, callback=increvcnt)
+
+while True:
+	sleep(SAMINT)
+	mph = revcount * (2.25 / SAMINT)
+	with open(WINDFILE, 'r') as wfile:
+		[lastwind, lastgust, lastdailygust] = wfile.read().rstrip().split(":")
+		wfile.close()
+
+	gust = float(lastgust)
+	dailygust = float(lastdailygust)
+	
+	if (mph > gust):
+		gust = mph
+
+	if (mph > dailygust):
+		dailygust = mph
+
+	with open(WINDFILE, 'w+') as wfile:
+		wfile.write("%4.1f:%4.1f:%4.1f" % (mph, gust, dailygust))
+		wfile.close()
+
+	revcount = 0
+
