@@ -1,0 +1,212 @@
+#!/usr/bin/python3
+# Name:		dynSysInfo
+# Version:	20200313
+# Author:	Sifan
+# Desc:		Updates db with current system stats
+
+import sys, os, re, platform
+import time, datetime
+import psutil
+
+kobsUtilPath = '/opt/KOBS'
+if kobsUtilPath not in sys.path:
+    sys.path.append(kobsUtilPath)
+
+import kobsUtil
+
+# --------------------------------------------------
+# Set Global Variables
+
+currentTime = datetime.datetime.now()
+currentTimeAsString = currentTime.strftime("%Y-%m-%d %H:%M:%S")
+
+hostname = kobsUtil.getShortHostName()
+
+# ----------------------------------------------------------
+def getCPUtemp():
+    if (platform.machine() == 'x86_64'):
+        res = os.popen('sensors coretemp-isa-0000').readlines()
+        if (hostname == "kanto"):
+            cpuTemp = float(re.sub("[^0-9 .]", "", res[2].split()[3]))
+        else:
+            cpuTemp = float(re.sub("[^0-9 .]", "", res[2].split()[2]))
+    else:
+        res = os.popen('vcgencmd measure_temp').readline()
+        cpuTemp = float(res.replace("temp=", "").replace("'C\n", ""))
+
+    return cpuTemp
+
+# --------------------------------------------------
+# get getCpuModelName
+
+def getCpuModelName():
+    modelName = None
+    f = open("/proc/cpuinfo")
+    for line in f.readlines():
+        match = re.match(r"^model name\s*:\s*(.+)", line)
+        if match:
+            modelName = match.group(1)
+            modelName = re.sub(r" +", " ", modelName)
+            break
+        match = re.match(r"^Processor\s*:\s*(.+)", line)
+        if match:
+            modelName = match.group(1)
+            modelName = re.sub(r" +", " ", modelName)
+            break
+        match = re.match(r"^Model\s*:\s*(.+)", line)
+        if match:
+            modelName = match.group(1)
+            modelName = re.sub(r" +", " ", modelName)
+            break
+    f.close()
+    return modelName
+
+# ----------------------------------------------------------
+def getMaxSafeCpuTemp():
+    if (platform.machine() == 'x86_64'):
+        res = os.popen('sensors coretemp-isa-0000').readlines()
+        if (hostname == "kanto"):
+            cpuTemp = float(re.sub("[^0-9 .]", "", res[2].split()[6]))
+        else:
+            cpuTemp = float(re.sub("[^0-9 .]", "", res[2].split()[5]))
+
+    else:
+        modelName = getCpuModelName()
+
+        # For our Raspberry Pi's:
+        # http://raspberrypi.stackexchange.com/questions/103/whats-the-maximum-minimum-running-temperature
+        # RPI 0 (kernville)
+        if modelName == 'ARMv6-compatible processor rev 7 (v6l)':
+            return 70.0
+        # RPI 3B+ (nelscot, neskowin, otis)
+        if modelName == 'ARMv7 Processor rev 4 (v7l)':
+            return 85.0
+        # RPI 4 (taft, depoe)
+        if modelName == 'Raspberry Pi 4 Model B Rev 1.1':
+            return 85.0
+
+    # Return 100 if not found
+    return 100.0
+
+# ----------------------------------------------------------
+def getUptimeHrs():
+    f = open("/proc/uptime")
+    uptime = 0.0
+    for line in f.readlines():
+        match = re.match(r"^(\d+\.\d+) ", line)
+        if match:
+            uptime = '{:6.2f}'.format(float(match.group(1)) / 3600.0)
+            break
+    f.close()
+    return uptime
+
+# ----------------------------------------------------------
+def getNumDebianUpdates():
+    if os.path.exists("/usr/bin/apt-get"):
+        output = kobsUtil.runCmd("/usr/bin/apt-get --dry-run dist-upgrade")
+        for aLine in output.splitlines():
+            match = re.match(r"^(\d+) upgraded,", aLine)
+            if match:
+                return int(match.group(1))
+
+    return 0
+
+# ----------------------------------------------------------
+def getDiskPercent():
+    # Jadeseas has two disks, report on the fullest one only
+    if (hostname == "jadeseas"):
+        rootdsk = (float(psutil.disk_usage('/')
+                         [1]) / float(psutil.disk_usage('/')[0])) * 100.0 + 5
+        optdsk = (float(psutil.disk_usage('/opt')
+                        [1]) / float(psutil.disk_usage('/opt')[0])) * 100.0 + 5
+        if (rootdsk > optdsk):
+            return "%s: %s" % ("/", '{:5.1f}'.format(rootdsk))
+        else:
+            return "%s: %s" % ("/opt", '{:5.1f}'.format(optdsk))
+
+    else:
+        # all others
+        rootdsk = '{:5.1f}'.format(
+            float(
+                psutil.disk_usage('/')[1]) /
+            float(
+                psutil.disk_usage('/')[0]) *
+            100.0 +
+            5)
+        return "%s: %s" % ("/", rootdsk)
+
+# ----------------------------------------------------------
+# does system need to be rebooted?
+Reboot = 'Y' if os.path.exists('/var/run/reboot-required') else 'N'
+
+
+LastBoot = datetime.datetime.fromtimestamp(
+    psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+CoreTemp = '{:5.1f}'.format(getCPUtemp() * 9 / 5.0 + 32)  # convert to F
+CoreMaxTemp = '{:5.1f}'.format(
+    getMaxSafeCpuTemp() *
+    9 /
+    5.0 +
+    32)  # convert to F
+CorePercent = '{:5.1f}'.format((getCPUtemp() / getMaxSafeCpuTemp()) * 100.0)
+
+# ----------------------------------------------------------
+# print out if -l arg
+try:
+    if (sys.argv[1] == "-l"):
+
+        print("Current Time  %s" % currentTimeAsString)
+        print("Hostname:     %s" % hostname)
+        print("UpTime:      %s hrs" % getUptimeHrs())
+        print("Last Boot    %s" % LastBoot)
+        print("CPU %%        %s" % psutil.cpu_percent(interval=1))
+        print("Mem %%        %s" % psutil.virtual_memory()[2])
+        print("Swap %%       %s" % psutil.swap_memory()[3])
+        print("Disk %%       %s" % getDiskPercent())
+        print("Core Temp    %s F" % CoreTemp)
+        print("Core Max Temp %s F" % CoreMaxTemp)
+        print("CPU Temp %%  %s" % CorePercent)
+        print("Updates:     %s" % getNumDebianUpdates())
+        print("Reboot:      %s" % Reboot)
+
+# --------------------------------------------------
+# Or add to database
+except BaseException:
+
+    try:
+        sqlQuery = "REPLACE INTO kobsDynamic SET  \
+        time='%s',  \
+        hostname='%s', \
+	UpTime='%s', \
+	LastBoot='%s', \
+	CPUpercent='%s', \
+	MEMpercent='%s', \
+	SWAPpercent='%s', \
+	DISKpercent='%s', \
+	CPUtemp='%s', \
+	CPUtempPercent='%s', \
+	Updates='%s', \
+	Reboot='%s' \
+    	" % (currentTimeAsString,
+          hostname,
+          getUptimeHrs(),
+          LastBoot,
+          psutil.cpu_percent(interval=1),
+          psutil.virtual_memory()[2],
+          psutil.swap_memory()[3],
+          getDiskPercent(),
+          CoreTemp,
+          CorePercent,
+          getNumDebianUpdates(),
+	  Reboot)
+        #print("DIAG: %s" % sqlQuery)
+        kobsUtil.mysqlCmd(sqlQuery)
+
+    except BaseException:
+        print("At %s Error writing to db for %s" %
+              (currentTimeAsString, hostname))
+
+# --------------------------------------------------
+# msyql commands to create this table:
+# create table kobsDynamic (time datetime, hostname varchar(15), UpTime varchar(10), LastBoot varchar(20), CPUpercent varchar(10), MEMpercent varchar(10), SWAPpercent varchar(10), DISKpercent varchar(10), CPUtemp varchar(10), CPUtempPercent varchar(10), Updates varchar(10)), Reboot varchar(1);
+# alter table kobsDynamic add unique index hostname_unique (hostname ASC);

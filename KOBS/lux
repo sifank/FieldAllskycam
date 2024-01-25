@@ -1,0 +1,57 @@
+#!/usr/bin/python3
+# File:		lux
+# Version:	20210818
+# Author:	Sifan
+# Desc:		reads the TSL2591 lux sensor
+
+import time, datetime
+import busio, board
+import adafruit_tsl2591
+
+#------------------------------------------------
+# lux sqm monitor
+# Initialize the sensor.
+i2c = busio.I2C(board.SCL, board.SDA)
+sqm = adafruit_tsl2591.TSL2591(i2c)
+
+intime = 0
+gain = 0
+lux = 0
+sleepint = 0.3
+
+def readlux(intime, gain):
+    sqm.gain = gain
+    sqm.integration_time = intime
+    time.sleep(sleepint)
+    try:
+        slux = sqm.lux
+    except:
+        slux = 0.0
+        print("Issue reading Lux")
+        sys.exit(1)
+    return slux
+
+try:
+    readlux(0,0)
+    while (lux == 0):
+        lux = readlux(intime,gain)
+
+        if (lux >= 1):
+            break
+    
+        if (intime < 5):
+            intime += 1
+            lux = readlux(intime,gain)
+        
+        elif ((lux == 0) & (gain < 48)):
+                gain += 16
+                lux = readlux(intime,gain)
+            
+    lux = '{:.5f}'.format(lux)
+
+except:
+    lux = 0.0
+
+print("Lux: %s" % lux)
+print("Visual: %s" % sqm.visible)
+print("IR: %s" % sqm.infrared)

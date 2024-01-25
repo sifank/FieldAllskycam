@@ -1,0 +1,63 @@
+#!/usr/bin/python3
+# File:		gpsi2c
+# Version:	20240124
+# Author: 	Sifan
+# Description:	reads Adafruit's i2c GPS (PMTK220)
+
+import time, board, sys
+import adafruit_gps
+from datetime import datetime
+from dateutil import tz
+
+loopcntr = 3
+latitude = 999.9999999
+longitude = 999.9999999
+ltime = datetime.now().strftime("%Y-%m-%dT %H:%M:%S")
+utime = datetime.utcnow().strftime("%Y-%m-%dT %H:%M:%S")
+gpsfix = 0
+altitude = 0
+
+i2c = board.I2C()  # uses board.SCL and board.SDA
+try:
+    gps = adafruit_gps.GPS_GtopI2C(i2c, debug=False)  # Use I2C interface
+    gps.send_command(b"PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
+    gps.send_command(b"PMTK220,1000")
+except:
+    print("Issue with I2C GPS")
+    sys.exit(1)
+
+while loopcntr:
+    gps.update()
+    loopcntr -= 1
+
+    if not gps.has_fix:
+        continue
+
+    utime = time.strftime("%Y%m%d %H:%M:%S",gps.timestamp_utc)
+    ltime = time.strftime("%Y%m%d %H:%M:%S",time.localtime(time.mktime(gps.timestamp_utc)))
+
+    latitude = gps.latitude
+    longitude = gps.longitude
+    gpsfix = gps.fix_quality
+
+    if gpsfix >= 3:
+        gpsfix = 3
+
+    if gps.altitude_m is not None:
+        altitude = gps.altitude_m
+
+    break
+
+print("--- GPS -------------------")
+print('Fix:       %s' % (("NO_FIX", "2D", "3D")[gpsfix]))
+print(f"GPS UTC:   {utime}")
+print(f"GPS local: {ltime}")
+print(f"GPS fix:   {gpsfix}")
+print(f"Latitude:  {latitude:.7f} deg")
+print(f"Longitude: {longitude:.7f} deg")
+if gpsfix == 2:
+    print(f"Altitude:  {altitude:.1f} m")
+
+sys.exit(0)
+
+

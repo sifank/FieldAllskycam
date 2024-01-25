@@ -1,0 +1,52 @@
+#!/usr/bin/python3
+# Program       ms8607
+# Version       20200818
+# Author        Sifan
+# Desc          reads MS8607 temp/hum/pres sensor
+
+import time, datetime
+import numpy as np
+import board
+import busio
+from adafruit_ms8607 import MS8607
+
+#-------------------------------------
+# Calc dewpoint from temp and hum
+a = 17.271
+b = 217.7  # deg C
+h2i = .02953  # hectopascals to inches
+
+def dewpoint(T,RH):
+    Td = (b * gamma(T,RH)) / (a - gamma(T,RH))
+    return Td
+
+def gamma(T,RH):
+    g = (a * T / (b + T)) + np.log(RH/100.0)
+    return g
+
+# Create the sensor object using I2C
+i2c = busio.I2C(board.SCL, board.SDA)
+sensor = MS8607(i2c)
+
+otaTemp = sensor.temperature
+otaHum = float(sensor.relative_humidity)
+otaDp = dewpoint(otaTemp, otaHum)
+otaPres = sensor.pressure * h2i
+
+# Convert to F
+otaTemp = otaTemp * 9.0/5.0 + 32.0
+otaDp = otaDp * 9.0/5.0 + 32.0
+
+otaDpDep = otaTemp - otaDp
+
+ntime = datetime.datetime.now().strftime("%H:%M ")
+
+print("Time:         %s" % ntime)
+print("OTA Temp:     %0.1f F" % otaTemp)
+print("OTA Hum:      %0.1f %%" % otaHum)
+print("OTA DP:       %0.1f F" % otaDp)
+print("OTA DpDep:    %0.1f F" % otaDpDep)
+print("OTA Pressure: %0.1f inMg" % otaPres)
+     
+#print("Temp: %0.1f F  Hum: %0.1f %%" % ((sensor.temperature * 9.0/5.0 + 32.0), sensor.relative_humidity))
+

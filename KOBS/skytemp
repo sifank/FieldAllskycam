@@ -1,0 +1,46 @@
+#!/usr/bin/python3
+# Program: skytemp
+# Desc:    lists sky temp
+# Usage:   -l pretty prints info
+# Author:  Sifan Kahale
+# Version: 20220709
+
+import datetime
+import smbus
+
+#----------------------------------------------------------
+# Configuration data 
+currentTime = datetime.datetime.now()
+currentTimeAsString = currentTime.strftime("%Y-%m-%d.%H.%M.%S")
+DHTgpio = 14  
+irPort = 1    # port for IR temp sensor
+ir_addr = 0x5a # i2c address for IR temp sensor
+wetPort = 21 # port for wet sensor
+outlayer = 30  # +/- diff in a measure before setting to last value
+
+#----------------------------------------------------------
+# Main
+#----------------------------------------------------------
+
+#----------------------------------------------------------
+# IR Sky Temp
+bus = smbus.SMBus(irPort)
+
+try:
+	reading = bus.read_word_data(ir_addr, 0x07)
+	skyTemp = reading * .02 - 273.15
+except:
+	skyTemp = 0.0
+
+#----------------------------------------------------------
+# output for collection by mingshan  
+
+try:
+  if (sys.argv[1] == "-l"):
+    print("%-12s   %s" % ("Time:",currentTimeAsString))
+    print("%-12s %6.2f" % ("Sky Temp:",skyTemp))
+
+except:
+    #print("%s:%6.2f" % (currentTimeAsString,skyTemp))
+    print("%.2f" % (skyTemp))
+

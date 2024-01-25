@@ -1,0 +1,49 @@
+#!/usr/bin/python3
+# Program       htu31d
+# Version       20211209
+# Author        Sifan
+# Desc          reads HTU31D  temp/hum sensor
+
+import board
+import busio
+import time, datetime
+import numpy as np
+from adafruit_htu31d import HTU31D
+ 
+#-------------------------------------
+# Calc dewpoint from temp and hum
+a = 17.271
+b = 217.7  # deg C
+
+def dewpoint(T,RH):
+    Td = (b * gamma(T,RH)) / (a - gamma(T,RH))
+    return Td
+
+def gamma(T,RH):
+    g = (a * T / (b + T)) + np.log(RH/100.0)
+    return g
+
+# Create library object using our Bus I2C port
+i2c = busio.I2C(board.SCL, board.SDA)
+sensor = HTU31D(i2c)
+
+otaTemp = sensor.temperature
+otaHum = float(sensor.relative_humidity)
+otaDp = dewpoint(otaTemp, otaHum)
+
+# Convert to F
+otaTemp = otaTemp * 9.0/5.0 + 32.0
+otaDp = otaDp * 9.0/5.0 + 32.0
+
+otaDpDep = otaTemp - otaDp
+
+ntime = datetime.datetime.now().strftime("%H:%M ")
+
+print("Time:         %s" % ntime)
+print("OTA Temp:     %0.1f F" % otaTemp)
+print("OTA Hum:      %0.1f %%" % otaHum)
+print("OTA DP:       %0.1f F" % otaDp)
+print("OTA DpDep:    %0.1f F" % otaDpDep)
+     
+#print("Temp: %0.1f F  Hum: %0.1f %%" % ((sensor.temperature * 9.0/5.0 + 32.0), sensor.relative_humidity))
+

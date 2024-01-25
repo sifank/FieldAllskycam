@@ -1,0 +1,24 @@
+#!/usr/bin/python3
+#
+# Name:     windSpd
+# Version:  20230426
+# Author:   Sifan
+# Desc:     reports Davis anemonetor spins as counted by the windSpdDaemon
+#           and placed into the lastwind.txt file
+
+import RPi.GPIO as GPIO
+import time, datetime
+from time import sleep
+import sys, os
+import curses
+
+WINDFILE = '/opt/KOBS/windsrv/lastwind.txt'
+
+with open(WINDFILE, 'r') as wfile:
+	[lastwind, lastgust, lastdailygust] = wfile.read().rstrip().split(":")
+
+print("Wind: %s mph" % lastwind)
+print("Gust: %s mph" % lastgust)
+print("Daily: %s mph" % lastdailygust)
+
+wfile.close()

@@ -1,0 +1,289 @@
+#!/usr/bin/python3
+# Name:		staticSysInfo
+# Version:	20100206
+# Author:	Sifan
+# Desc:		Outputs static system info
+
+import sys, os, subprocess, re, socket
+import glob, math, pwd, psutil
+import time, datetime
+import platform
+
+kobsUtilPath = '/opt/KOBS'
+if kobsUtilPath not in sys.path:
+    sys.path.append(kobsUtilPath)
+import kobsUtil
+
+# --------------------------------------------------
+# Set Global Variables
+currentTime = datetime.datetime.now()
+currentTimeAsString = currentTime.strftime("%Y-%m-%d %H:%M:%S")
+
+hostname = kobsUtil.getShortHostName()
+
+# --------------------------------------------------
+# Network information
+
+
+def getNetInfo():
+    netinfo = psutil.net_if_addrs()
+    interf = {}
+    for interface in netinfo.keys():
+        if interface != "lo":
+            if netinfo[interface][0][0] == 2:
+                ipaddr = netinfo[interface][0][1]
+                if netinfo[interface][1][0] == 17:
+                    macaddr = netinfo[interface][1][1]
+                elif netinfo[interface][2][0] == 17:
+                    macaddr = netinfo[interface][2][1]
+                elif netinfo[interface][3][0] == 17:
+                    macaddr = netinfo[interface][3][1]
+
+                interf[interface] = [ipaddr, macaddr]
+
+    return interf
+
+# --------------------------------------------------
+# Returns the processor architecture of the system.
+def getArchitecture():
+    try:
+        return kobsUtil.runCmd("arch", False).strip()
+    except:
+        return None
+
+# --------------------------------------------------
+# Get Product or Model Name
+def getProductName():
+    arch = getArchitecture()
+
+    # Special case for Raspberry Pi's.
+    if arch == 'armv6l':
+        return 'RPI Zero'
+    if arch == 'armv7l':
+        return 'RPI 3 B'
+    if arch == 'aarch64':
+        return 'RPI 4 B'
+
+    # Everything else
+    dmidecode = '/usr/sbin/dmidecode'
+    if not os.path.exists(dmidecode):
+        return ''
+    productName = kobsUtil.runCmd(
+        "%s -s system-product-name" % dmidecode, False).strip()
+    if productName == 'OMEN by HP Laptop 17-an0xx':
+        return 'OMEN 17-an0xx'
+    if productName == 'MSI X58 Pro SLI (MS-7522)':
+        return 'MSI X58'
+    if productName == 'Precision WorkStation T5400':
+        return 'Dell T5400'
+
+    return productName
+
+# --------------------------------------------------
+# get total memory
+
+
+def getMemTotal():
+    return '{:6.2f}'.format(psutil.virtual_memory()[0] / 1000000000.0)
+
+# --------------------------------------------------
+# get total swap
+def getSwapTotal():
+    return '{:6.2f}'.format(psutil.swap_memory()[0] / 1000000000.0)
+
+# --------------------------------------------------
+# get disk capacities
+def getDiskCap():
+    return '{:6.2f}'.format(psutil.disk_usage("/")[0] / 1000000000.0)
+
+# --------------------------------------------------
+# get getManufacturer
+def getManufacturer():
+    # Special case for Raspberry Pi's.
+    if getArchitecture() in ['armv6l', 'armv7l', 'aarch64']:
+        return 'Raspberry Pi'
+
+    # Everything else
+    dmidecode = '/usr/sbin/dmidecode'
+    if not os.path.exists(dmidecode):
+        return ''
+
+    manufacturer = ''
+    return kobsUtil.runCmd("%s -s system-manufacturer" % dmidecode, False).strip()
+
+# --------------------------------------------------
+# get getNumberOfProcessors
+def getNumberOfProcessors():
+    if getManufacturer() == "Raspberry Pi":
+        numbProc = psutil.cpu_count()
+    else:
+        numbProc = psutil.cpu_count(logical=False)
+
+    return numbProc
+
+# --------------------------------------------------
+# get getCpuMaxFreq
+
+
+def getCpuMaxFreq():
+    try:
+        f = open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq")
+        freq = f.readlines()[0].strip()
+        cpuFreq = '{:6.2f}'.format(int(freq) / 1000000.0)
+    except:
+        cpuFreq = re.sub('[^0-9]', '', getCpuModelName().split("@")[1])
+
+    return cpuFreq
+
+# --------------------------------------------------
+# get getCpuModelName
+
+
+def getCpuModelName():
+    modelName = None
+    f = open("/proc/cpuinfo")
+    for line in f.readlines():
+        match = re.match(r"^model name\s*:\s*(.+)", line)
+        if match:
+            modelName = match.group(1)
+            modelName = re.sub(r" +", " ", modelName)
+            break
+        match = re.match(r"^Processor\s*:\s*(.+)", line)
+        if match:
+            modelName = match.group(1)
+            modelName = re.sub(r" +", " ", modelName)
+            break
+        match = re.match(r"^Model\s*:\s*(.+)", line)
+        if match:
+            modelName = match.group(1)
+            modelName = re.sub(r" +", " ", modelName)
+            break
+    f.close()
+    return modelName
+
+# --------------------------------------------------
+# Returns the Linux version string.
+
+
+def getLinuxVersionStr():
+    if os.path.exists("/usr/bin/lsb_release"):
+        return kobsUtil.runCmd("lsb_release -d", False).strip().split('\t')[1]
+
+    # For the Raspberry Pi's.
+    if os.path.exists("/etc/os-release"):
+        f = open("/etc/os-release")
+        line = f.readline().strip()
+        f.close()
+        match = re.search(r"PRETTY_NAME=\"(.*)\"", line)
+        if match:
+            return match.group(1)
+
+    return "unknown"
+
+# --------------------------------------------------
+# Returns the kernel version string from "uname -r".
+
+
+def getKernelVersionStr():
+    try:
+        return kobsUtil.runCmd("uname -r", False).strip()
+    except:
+        return 'unknown'
+
+# --------------------------------------------------
+# Returns the Python version number as a string.
+
+
+def getPythonVersionStr():
+    version = sys.version_info
+    return "%s.%s.%s" % (version[0], version[1], version[2])
+
+# --------------------------------------------------
+# Main
+
+
+netInter = getNetInfo()
+
+net1Inter = "None"
+net1IP = "None"
+net1MAC = "None"
+net2Inter = "None"
+net2IP = "None"
+net2MAC = "None"
+
+i = 1
+for netkey in netInter:
+    if i == 1:
+        net1Inter = netkey
+        net1IP = netInter[netkey][0]
+        net1MAC = netInter[netkey][1]
+    elif i == 2:
+        net2Inter = netkey
+        net2IP = netInter[netkey][0]
+        net2MAC = netInter[netkey][1]
+    i += 1
+
+# --------------------------------------------------
+# Print out info
+try:
+    if (sys.argv[1] == "-l"):
+
+        print("Current Time     %s" % currentTimeAsString)
+        print("Hostname:        %s" % hostname)
+        print("Arch:            %s" % getArchitecture())
+        print("Product:         %s" % getProductName())
+        print("Manuf:           %s" % getManufacturer())
+        print("CPUs:            %s" % getNumberOfProcessors())
+        print("CPU Freq:        %s Ghz" % getCpuMaxFreq())
+        print("CPU Model:       %s" % getCpuModelName())
+        print("Total Mem:       %s Gb" % getMemTotal())
+        print("Total Swap:      %s Gb" % getSwapTotal())
+        print("Disks Cap:       %s Gb" % getDiskCap())
+        print("Net1:            Interface: %s, IP: %s MAC: %s" %
+              (net1Inter, net1IP, net1MAC))
+        print("Net2:            Interface: %s, IP: %s MAC: %s" %
+              (net2Inter, net2IP, net2MAC))
+        print("Linux Ver:       %s" % getLinuxVersionStr())
+        print("Kernel Ver:      %s" % getKernelVersionStr())
+        print("Python Ver:      %s" % getPythonVersionStr())
+
+# --------------------------------------------------
+# Or add to database
+except:
+
+     sqlQuery = "REPLACE INTO kobsStatic SET  \
+        time='%s',  \
+	hostname='%s', \
+	arch='%s', \
+	product='%s', \
+	manuf='%s', \
+	numcpu='%s', \
+	cpufreq='%s', \
+	cpumodel='%s', \
+	totmem='%s', \
+	totswap='%s', \
+	diskcap='%s', \
+	net1nic='%s', \
+	net1ip='%s', \
+	net1mac='%s', \
+	net2nic='%s', \
+	net2ip='%s', \
+	net2mac='%s', \
+	linuxver='%s', \
+	kernelver='%s', \
+	pythonver='%s' \
+	" \
+            % (currentTimeAsString, hostname, getArchitecture(), getProductName(), getManufacturer(), getNumberOfProcessors(), getCpuMaxFreq(), getCpuModelName(), getMemTotal(),   getSwapTotal(), getDiskCap(), net1Inter, net1IP, net1MAC, net2Inter, net2IP, net2MAC, getLinuxVersionStr(), getKernelVersionStr(), getPythonVersionStr())
+
+     #print("DIAG: %s" % sqlQuery)
+     try:
+        kobsUtil.mysqlCmd(sqlQuery)
+
+     except:
+        print("At %s Error writing to db for %s" %
+              (currentTimeAsString, hostname))
+
+# --------------------------------------------------
+# msyql commands to create this table:
+# create table kobsStatic (time datetime, hostname varchar(15),arch varchar(10), product varchar(60), manuf varchar(40), numcpu int(6), cpufreq double, cpumodel= varchar(60), totmem double, totswap double, diskcap double, net1nic varchar(10), net1ip varchar(20), net1mac varchar(20), net2nic varchar(10), net2ip varchar(20), net2mac varchar(20), linuxver varchar(20), kernelver varchar(20), pythonver varchar(20));
+# alter table kobsStatic add unique index hostname_unique (hostname ASC);
