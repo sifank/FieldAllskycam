@@ -1,0 +1,260 @@
+#!/usr/bin/python3
+# File:         allskyupdater
+# Version:      20240125
+# Author:       Sifan Kahale
+# Desc:         lists all the allskysqm sensors
+
+#---Imports---------------------------
+import numpy as np
+import board, sys, time
+import busio, smbus
+import RPi.GPIO as GPIO
+from datetime import datetime
+from dateutil import tz
+from adafruit_ms8607 import MS8607
+from adafruit_htu31d import HTU31D
+import adafruit_tsl2591
+import adafruit_gps
+
+#---Statis Vars------------------------
+CRDNLS   = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+             "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+WINDFILE = '/opt/KOBS/windsrv/lastwind.txt'
+irPort = 1
+ir_addr = 0x5a
+intime = 0
+gain = 0
+sleepint = 0.3
+tz_UTC = tz.tzutc()
+tz_LOC = tz.tzlocal()
+loopout = 10
+
+#-------------------------------------
+# Calc dewpoint from temp and hum
+a = 17.271
+b = 217.7    # deg C
+h2i = .02953 #hectopascals to inches
+
+def dewpoint(T,RH):
+    Td = (b * gamma(T,RH)) / (a - gamma(T,RH))
+    return Td
+
+def gamma(T,RH):
+    g = (a * T / (b + T)) + np.log(RH/100.0)
+    return g
+
+# Create the sensor object using I2C
+i2c = busio.I2C(board.SCL, board.SDA)
+
+#------------------------------------------------
+# HTU31D temp/hum
+# Create the sensor object using I2C
+Temp = 0.0
+Hum = 0.0
+Dp = 0.0
+DpDep = 0.0
+try:
+    sensor = HTU31D(i2c)
+
+    Temp = sensor.temperature
+    Hum = float(sensor.relative_humidity)
+    Dp = dewpoint(Temp, Hum)
+
+    # Convert to F
+    Temp = Temp * 9.0/5.0 + 32.0
+    Dp = Dp * 9.0/5.0 + 32.0
+    DpDep = Temp - Dp
+
+except:
+    if(len(sys.argv) == 1):
+        print("Env sensor (HTU31D) not working")
+
+#------------------------------------------------
+# MS8607 temp/hum/pres
+caseTemp = 0.0
+caseHum = 0.0
+caseDp = 0.0
+caseDpDep = 0.0
+casePres = 0.0
+try:
+    sensor = MS8607(i2c)
+
+    caseTemp = sensor.temperature
+    caseHum = float(sensor.relative_humidity)
+    caseDp = dewpoint(caseTemp, caseHum)
+    casePres = sensor.pressure * h2i
+
+    # Convert to F
+    caseTemp = caseTemp * 9.0/5.0 + 32.0
+    caseDp = caseDp * 9.0/5.0 + 32.0
+    caseDpDep = caseTemp - caseDp
+
+except:
+    if(len(sys.argv) == 1):
+        print("Case sensor (MS8607) not working")
+
+#------------------------------------------------
+# IR Sky Temp
+skyTemp = 0.0
+try:
+    bus = smbus.SMBus(irPort)
+    reading = bus.read_word_data(ir_addr, 0x07)
+    skyTemp = reading * .02 - 273.15
+except:
+    if(len(sys.argv) == 1):
+        print("IR Sky probe not working")
+
+if (skyTemp < -30):
+        skyTemp = 0
+
+#------------------------------------------------
+# lux sqm monitor
+lux = 0.0
+
+def readlux(intime, gain):
+    sqm.gain = gain
+    sqm.integration_time = intime
+    time.sleep(sleepint)
+    try:
+        slux = sqm.lux
+    except:
+        slux = 0.0
+        if(len(sys.argv) == 1):
+            print("Issue reading Lux")
+        exit(1)
+    return slux
+
+try:
+    sqm = adafruit_tsl2591.TSL2591(i2c)
+    readlux(0,0)
+    while (lux == 0):
+        lux = readlux(intime,gain)
+
+        if (lux >= 1):
+            break
+
+        if (intime < 5):
+            intime += 1
+            lux = readlux(intime,gain)
+
+        elif ((lux == 0) & (gain < 48)):
+                gain += 16
+                lux = readlux(intime,gain)
+
+except:
+    lux = 0.0
+
+try:
+    infrared = sqm.infrared
+except:
+    infrared = 0.0
+
+try:
+    visible = sqm.visible
+except:
+    visible = 0.0
+
+#------------------------------------------------
+# GPS data
+
+loopcntr = 3 
+latitude = 999.9999999
+longitude = 999.9999999
+ltime = datetime.now().strftime("%Y-%m-%dT %H:%M:%S")
+utime = datetime.utcnow().strftime("%Y-%m-%dT %H:%M:%S")
+gpsfix = 0 
+altitude = 0 
+
+i2c = board.I2C()  # uses board.SCL and board.SDA
+try:
+    gps = adafruit_gps.GPS_GtopI2C(i2c, debug=False)  # Use I2C interface
+    gps.send_command(b"PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
+    gps.send_command(b"PMTK220,1000")
+except:
+    print("Issue with I2C GPS")
+    sys.exit(1)
+
+while loopcntr:
+    gps.update()
+    loopcntr -= 1
+
+    if not gps.has_fix:
+        continue
+
+    gps.update()
+    utime = time.strftime("%Y%m%d %H:%M:%S",gps.timestamp_utc)
+    ltime = time.strftime("%Y%m%d %H:%M:%S",time.localtime(time.mktime(gps.timestamp_utc)))
+
+    latitude = gps.latitude
+    longitude = gps.longitude
+    gpsfix = gps.fix_quality
+
+    if gpsfix >= 3:
+        gpsfix = 3 
+
+    if gps.altitude_m is not None:
+        altitude = gps.altitude_m
+
+    break
+
+#-------------------------------------
+# Wind Speeds
+WSpeed = 0
+WGust = 0
+with open(WINDFILE, 'r') as wfile:
+        [WSpeed, WGust, WDgust] = wfile.read().rstrip().split(":")
+
+'''
+#-------------------------------------
+# Wind Direction
+pcf = PCF.PCF8591(i2c)
+
+# Which channel to read (0-3)
+CHANNEL = 3
+
+# Initialize cardinal dir
+cardir = "U"   # meaning unset
+
+# Read channel 0 for 5 seconds and print out its values.
+voltage = pcf.read(CHANNEL)
+degrees = voltage * 1.43
+WCrdnl = CRDNLS[(int((degrees + 11.25)/22.5)) % 16]
+WDir = '{:3.1f}'.format(degrees)
+'''
+
+#-------------------------------------
+# these are not implemented
+Rain = 0
+WCrdnl = "N"
+WDir = 0
+
+#-------------------------------------
+# print 
+ntime = datetime.now().strftime("%H:%M ")
+
+deg = u'\N{DEGREE SIGN}'
+fix = "%s" % (("NO_FIX", "2D", "3D")[gpsfix])
+print(f"Fix:   {fix}")
+print(f"Local: {ltime}")
+print(f"UTC:   {utime}")
+print(f"Lat:   {latitude:.7f}{deg}")
+print(f"Lon:   {longitude:.7f}{deg}")
+if gpsfix >= 3:
+    print(f"Alt:   {altitude:1} m")
+print(f"DpDep: {DpDep:.1f}{deg} ")
+print(f"Temp:  {Temp:.1f}{deg}F")
+print(f"Hum:   {Hum:.1f} %")
+print(f"DP:    {Dp:.1f}{deg}F")
+print(f"Temp:  {caseTemp:.1f}{deg}F")
+print(f"Pres:  {casePres:.2f} inHg")
+print(f"Wind:  {WSpeed} mph")
+print(f"Gust:  {WGust} mph")
+print(f"Daily: {WDgust} mph")
+print(f"Dir:   {WDir}{deg}")
+print(f"Dir:   {WCrdnl} ")
+print(f"Skytmp:{skyTemp:.2f}{deg}C")
+print(f"Lux:   {lux:.8f} lux")
+print(f"Vis:   {visible:.6f} lux")
+print(f"IR:    {infrared:.6f} lux")
+
+sys.exit(0)
