@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+# Program:	winddir-AS5600
+# Version:	20240126
+# Author:	Sifan
+# Desc:		Uses old Davis Wind Vane and AS5600 to measure wind direction
+
+import time, datetime
+import sys
+from subprocess import Popen, PIPE
+
+CRDNLS   = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+             "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+currentTime = datetime.datetime.now()
+currentTimeAsString = currentTime.strftime("%Y-%m-%d %H:%M:%S")
+
+# Initialize cardinal dir
+cardir = "U"   # meaning unset
+
+result = Popen(["/usr/local/bin/as5600", "-eread", "--times=1"], stdout=PIPE, stderr=PIPE)
+rangle = result.communicate()
+deg = float(rangle[0].split()[5].decode()[:-1])
+
+windCrd = CRDNLS[(int((deg + 11.25)/22.5)) % 16]
+
+print(f"Current Time: {currentTimeAsString}")
+print(f"Direction:   {deg}")  
+print(f"Cardinal:    {windCrd}")
+
