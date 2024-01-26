@@ -15,6 +15,7 @@ from adafruit_ms8607 import MS8607
 from adafruit_htu31d import HTU31D
 import adafruit_tsl2591
 import adafruit_gps
+from subprocess import Popen, PIPE
 
 #---Statis Vars------------------------
 CRDNLS   = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
@@ -157,44 +158,45 @@ except:
 #------------------------------------------------
 # GPS data
 
-loopcntr = 3 
-latitude = 999.9999999
-longitude = 999.9999999
-ltime = datetime.now().strftime("%Y-%m-%dT %H:%M:%S")
-utime = datetime.utcnow().strftime("%Y-%m-%dT %H:%M:%S")
-gpsfix = 0 
-altitude = 0 
+def gpsloop():
+    gpsfix = 0
+    altitude = 0
+    ltime = datetime.now().strftime("%Y-%m-%dT %H:%M:%S")
+    utime = datetime.utcnow().strftime("%Y-%m-%dT %H:%M:%S")
+    try:
+        gps = adafruit_gps.GPS_GtopI2C(i2c, debug=False)  # Use I2C interface
+        gps.send_command(b"PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
+        gps.send_command(b"PMTK220,1000")
+    except:
+        print("Issue with I2C GPS device")
+        return(0, ltime, utime, 999.999999, 999.9999999, 0)
 
-i2c = board.I2C()  # uses board.SCL and board.SDA
-try:
-    gps = adafruit_gps.GPS_GtopI2C(i2c, debug=False)  # Use I2C interface
-    gps.send_command(b"PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
-    gps.send_command(b"PMTK220,1000")
-except:
-    print("Issue with I2C GPS")
-    sys.exit(1)
+    loopcntr = 3 
+    while loopcntr:
+        gps.update()
+        loopcntr -= 1
 
-while loopcntr:
-    gps.update()
-    loopcntr -= 1
+        if not gps.has_fix:
+            continue
 
-    if not gps.has_fix:
-        continue
-    gps.update()
-    utime = time.strftime("%Y%m%d %H:%M:%S",gps.timestamp_utc)
-    ltime = time.strftime("%Y%m%d %H:%M:%S",time.localtime(time.mktime(gps.timestamp_utc)))
+        utime = time.strftime("%Y%m%d %H:%M:%S",gps.timestamp_utc)
+        ltime = time.strftime("%Y%m%d %H:%M:%S",time.localtime(time.mktime(gps.timestamp_utc)))
 
-    latitude = gps.latitude
-    longitude = gps.longitude
-    gpsfix = gps.fix_quality
+        gpsfix = gps.fix_quality
+        if gpsfix >= 3:
+            gpsfix = 3 
 
-    if gpsfix >= 3:
-        gpsfix = 3 
+        if gps.altitude_m is not None:
+            altitude = gps.altitude_m
 
-    if gps.altitude_m is not None:
-        altitude = gps.altitude_m
+        return(gpsfix, ltime, utime, gps.latitude, gps.longitude, altitude)
 
-    break
+    print("Issue with I2C GPS no fix")
+    return(0, ltime, utime, 999.999999, 999.9999999, 0)
+
+
+### Main
+(gpsfix, ltime, utime, latitude, longitude, altitude) = gpsloop()
 
 #-------------------------------------
 # Wind Speeds
@@ -203,29 +205,23 @@ WGust = 0
 with open(WINDFILE, 'r') as wfile:
         [WSpeed, WGust, WDgust] = wfile.read().rstrip().split(":")
 
-'''
 #-------------------------------------
 # Wind Direction
-pcf = PCF.PCF8591(i2c)
+WCrdnl = "U"
+WDir = 0
 
-# Which channel to read (0-3)
-CHANNEL = 3
-
-# Initialize cardinal dir
-cardir = "U"   # meaning unset
-
-# Read channel 0 for 5 seconds and print out its values.
-voltage = pcf.read(CHANNEL)
-degrees = voltage * 1.43
-WCrdnl = CRDNLS[(int((degrees + 11.25)/22.5)) % 16]
-WDir = '{:3.1f}'.format(degrees)
-'''
+try:
+    result = Popen(["/usr/local/bin/as5600", "-eread", "--times=1"], stdout=PIPE, stderr=PIPE)
+    WDir = float(result.communicate()[0].split()[5].decode()[:-1])
+    WCrdnl = CRDNLS[(int((WDir + 11.25)/22.5)) % 16]
+except:
+    print("Issue with wind direction sensor")
+    WDir = 0
+    WCrdnl = "U"
 
 #-------------------------------------
 # these are not implemented
 Rain = 0
-WCrdnl = "N"
-WDir = 0
 
 #-------------------------------------
 # print 
@@ -260,6 +256,7 @@ else:
     print(f"DP:         {Dp:.1f}{deg}F")
     print("--CASE---------------------")
     print(f"Temp:       {caseTemp:.1f}{deg}F")
+    print(f"Hum:        {caseHum:.1f}{deg}F")
     print(f"Pres:       {casePres:.2f} inHg")
     print("--WIND---------------------")
     print(f"Wind:       {WSpeed} mph")
