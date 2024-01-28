@@ -213,6 +213,7 @@ WDir = 0
 try:
     result = Popen(["/usr/local/bin/as5600", "-eread", "--times=1"], stdout=PIPE, stderr=PIPE)
     WDir = float(result.communicate()[0].split()[5].decode()[:-1])
+    WDir = (WDir + 180) % 360  # flip N and S
     WCrdnl = CRDNLS[(int((WDir + 11.25)/22.5)) % 16]
 except:
     print("Issue with wind direction sensor")
