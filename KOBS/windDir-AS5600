@@ -20,6 +20,7 @@ cardir = "U"   # meaning unset
 result = Popen(["/usr/local/bin/as5600", "-eread", "--times=1"], stdout=PIPE, stderr=PIPE)
 rangle = result.communicate()
 deg = float(rangle[0].split()[5].decode()[:-1])
+deg = (deg + 180) % 360
 
 windCrd = CRDNLS[(int((deg + 11.25)/22.5)) % 16]
 
