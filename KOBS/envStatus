@@ -9,7 +9,7 @@ import numpy as np
 import board, sys, time
 import busio, smbus
 import RPi.GPIO as GPIO
-from datetime import datetime
+from datetime import datetime, timezone
 from dateutil import tz
 from adafruit_ms8607 import MS8607
 from adafruit_htu31d import HTU31D
@@ -158,29 +158,38 @@ except:
 #------------------------------------------------
 # GPS data
 
+ltime = datetime.now().strftime("%Y%m%d %H:%M:%S")
+utime = datetime.utcnow().strftime("%Y%m%d %H:%M:%S")
+
 def gpsloop():
-    gpsfix = 0
-    altitude = 0
-    ltime = datetime.now().strftime("%Y-%m-%dT %H:%M:%S")
-    utime = datetime.utcnow().strftime("%Y-%m-%dT %H:%M:%S")
+    gpsfix = 0 
+    altitude = 0 
+    geoid = 0 
+    fixtimeU= ""
+    gltime = gutime = "00000000 00:00:00"
+
     try:
         gps = adafruit_gps.GPS_GtopI2C(i2c, debug=False)  # Use I2C interface
         gps.send_command(b"PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
-        gps.send_command(b"PMTK220,1000")
+        gps.send_command(b"PMTK220,1500")
     except:
-        print("Issue with I2C GPS device")
-        return(0, ltime, utime, 999.999999, 999.9999999, 0)
+        print("Issue with I2C GPS")
+        return(0, 0, gltime, gutime, 999.999999, 999.9999999, 0, 0)
 
     loopcntr = 3 
     while loopcntr:
         gps.update()
         loopcntr -= 1
-
         if not gps.has_fix:
             continue
+        if gps.timestamp_utc.tm_year == 0:
+            continue
 
-        utime = time.strftime("%Y%m%d %H:%M:%S",gps.timestamp_utc)
-        ltime = time.strftime("%Y%m%d %H:%M:%S",time.localtime(time.mktime(gps.timestamp_utc)))
+        gps.update()
+        ztz = datetime(*gps.timestamp_utc[:6])
+        gutime = f"{ztz:%Y%m%d %H:%M:%S}"
+        ltz = datetime(*gps.timestamp_utc[:6]).replace(tzinfo=timezone.utc).astimezone(tz=None)
+        gltime = f"{ltz:%Y%m%d %H:%M:%S %Z}"
 
         gpsfix = gps.fix_quality
         if gpsfix >= 3:
@@ -189,14 +198,17 @@ def gpsloop():
         if gps.altitude_m is not None:
             altitude = gps.altitude_m
 
-        return(gpsfix, ltime, utime, gps.latitude, gps.longitude, altitude)
+        if gps.height_geoid is not None:
+            geoid = gps.height_geoid
 
-    print("Issue with I2C GPS no fix")
-    return(0, ltime, utime, 999.999999, 999.9999999, 0)
+        return(gpsfix, ztz, gltime, gutime, gps.latitude, gps.longitude, altitude, geoid)
 
+    print("Issue with I2C GPS")
+    return(0, 0, gltime, gutime, 999.999999, 999.9999999, 0, 0)
 
-### Main
-(gpsfix, ltime, utime, latitude, longitude, altitude) = gpsloop()
+# Main for gps
+(gpsfix, ztz, gltime, gutime, latitude, longitude, altitude, geoid) = gpsloop()
+
 
 #-------------------------------------
 # Wind Speeds
@@ -213,7 +225,7 @@ WDir = 0
 try:
     result = Popen(["/usr/local/bin/as5600", "-eread", "--times=1"], stdout=PIPE, stderr=PIPE)
     WDir = float(result.communicate()[0].split()[5].decode()[:-1])
-    WDir = (WDir + 180) % 360  # flip N and S
+    WDir = (WDir + 180) % 360  # flip S and N
     WCrdnl = CRDNLS[(int((WDir + 11.25)/22.5)) % 16]
 except:
     print("Issue with wind direction sensor")
@@ -244,11 +256,11 @@ else:
     fix = "%s" % (("NO_FIX", "2D", "3D")[gpsfix])
     print("--GPS----------------------")
     print(f"Fix:        {fix}")
-    print(f"Local time: {ltime}")
-    print(f"UTC time:   {utime}")
+    print(f"Local time: {gltime}")
+    print(f"UTC time:   {gutime} UTC")
     print(f"Lat:        {latitude:.7f}{deg}")
     print(f"Lon:        {longitude:.7f}{deg}")
-    if gpsfix >= 3:
+    if gpsfix == 2:
         print(f"Altitiude:  {altitude:1} m")
     print("--ENV----------------------")
     print(f"DpDep:      {DpDep:.1f}{deg} ")
@@ -263,7 +275,7 @@ else:
     print(f"Wind:       {WSpeed} mph")
     print(f"Gust:       {WGust} mph")
     print(f"Daily:      {WDgust} mph")
-    print(f"Dir:        {WDir}{deg}")
+    print(f"Dir:        {WDir:.1f}{deg}")
     print(f"Cardinal:   {WCrdnl} ")
     print("--SKY----------------------")
     print(f"Skytemp:    {skyTemp:.2f}{deg}C")
