@@ -6,7 +6,7 @@
 
 #---Imports---------------------------
 import numpy as np
-import board, sys, time
+import board, sys, time, ephem
 import busio, smbus
 import RPi.GPIO as GPIO
 from datetime import datetime, timezone
@@ -209,6 +209,14 @@ def gpsloop():
 # Main for gps
 (gpsfix, ztz, gltime, gutime, latitude, longitude, altitude, geoid) = gpsloop()
 
+# calculate local sidereal time
+if gpsfix >=1:
+    obs = ephem.Observer()
+    obs.lon = f"{longitude}"
+    obs.lat = f"{latitude}"
+    obs.epoch = '2024'
+    obs.date = ephem.Date(ztz)
+    lsttime = f"{obs.sidereal_time()}"
 
 #-------------------------------------
 # Wind Speeds
@@ -258,6 +266,8 @@ else:
     print(f"Fix:        {fix}")
     print(f"Local time: {gltime}")
     print(f"UTC time:   {gutime} UTC")
+    if gpsfix >= 1:
+        print(f"LST:        {lsttime}")
     print(f"Lat:        {latitude:.7f}{deg}")
     print(f"Lon:        {longitude:.7f}{deg}")
     if gpsfix == 2:

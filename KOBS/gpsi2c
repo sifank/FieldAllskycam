@@ -41,7 +41,6 @@ def gpsloop():
 
         gps.update()
         ztz = datetime(*gps.timestamp_utc[:6])
-        print(ztz)
         gutime = f"{ztz:%Y%m%d %H:%M:%S}"
         ltz = datetime(*gps.timestamp_utc[:6]).replace(tzinfo=timezone.utc).astimezone(tz=None)
         gltime = f"{ltz:%Y%m%d %H:%M:%S %Z}"
@@ -68,24 +67,25 @@ def gpsloop():
 # calculate local sidereal time
 if gpsfix >=1:
     obs = ephem.Observer()
-    obs.lon = longitude
-    obs.lat = latitude
-    obs.epoch = '2020'
+    obs.lon = f"{longitude}"
+    obs.lat = f"{latitude}"
+    obs.epoch = '2024'
     obs.date = ephem.Date(ztz)
+    lsttime = f"{obs.sidereal_time()}"
 
 print("--- Local -----------------")
-print(f"System Time: {utime} UTC")
-print(f"System Time: {ltime} LOC")
+print(f"System:   {utime} UTC")
+print(f"System:   {ltime} LOC")
 print("--- GPS -------------------")
-print('Fix:         %s' % (("NO FIX", "2D", "3D")[gpsfix]))
-print(f"GPS Time:    {gutime} UTC")
-print(f"GPS Time:    {gltime}")
+print('Fix:      %s' % (("NO FIX", "2D", "3D")[gpsfix]))
+print(f"GPS:      {gutime} UTC")
+print(f"GPS:      {gltime}")
 if gpsfix >= 1:
-    print(f"LST:         {obs.sidereal_time()}")
-print(f"Latitude:    {latitude:.7f} deg")
-print(f"Longitude:   {longitude:.7f} deg")
+    print(f"LST:      {lsttime}")
+print(f"Latitude: {latitude:.7f} deg")
+print(f"Longitude {longitude:.7f} deg")
 if gpsfix == 2:
-    print(f"Altitude:   {altitude:.1f} m")
+    print(f"Altitude:  {altitude:.1f} m")
     #print(f"Geiod H:   {geoid:.2f} m")
 
 sys.exit(0)
